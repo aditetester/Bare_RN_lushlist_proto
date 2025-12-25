@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "LushList",
+    "slug": "lushlist-proto",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.lushlist.proto"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.lushlist.proto"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "scheme": "lushlist",
+    "extra": {
+      "eas": {
+        "projectId": "5ef4d788-733a-4ffd-9e53-adad306443bf"
+      }
+    },
+    "owner": "kerja-rumah"
+  }
+}
