@@ -79,5 +79,9 @@
     <string>Dark</string>
     <key>UIViewControllerBasedStatusBarAppearance</key>
     <false/>
+    <key>NSCameraUsageDescription</key>
+    <string>We need camera access for the recording overlay.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>We need microphone access for audio.</string>
   </dict>
 </plist>

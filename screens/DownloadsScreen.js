@@ -28,7 +28,18 @@ import {
 export default function DownloadsScreen() {
   const navigation = useNavigation();
   const [modalVisible, setModalVisible] = useState(false);
-  const [downloads, setDownloads] = useState([]);
+  const [downloads, setDownloads] = useState([
+    {
+      id: 'static-patina-maldives',
+      imageUrl: 'https://www.dropbox.com/scl/fi/5toaj8fdfhws76m3m169j/DJI_0399.jpg?rlkey=7bqwf8kolcs3arx8osrrw4b6b&st=bibrgpit&dl=1',
+      title: 'Patina Maldives',
+      description: 'Experience the stunning beauty of Patina Maldives in this immersive 360° tour.',
+      downloadUrl: 'https://pub-bf6c0cea15654fe9899ee509ab1786b8.r2.dev/PatinaMaldivesv2.zip',
+      status: 'pending', // Change to pending initially
+      entryFile: null,   // Let the check find it
+      imageError: false,
+    }
+  ]);
   const [downloadProgress, setDownloadProgress] = useState({});
 
   const [formData, setFormData] = useState({
@@ -39,6 +50,31 @@ export default function DownloadsScreen() {
   });
 
   const slideAnim = useRef(new Animated.Value(0)).current;
+
+  // Check if downloads exist on mount
+  // React.useEffect(() => {
+  //   const checkExistingDownloads = async () => {
+  //     console.log('DEBUG: Checking existing downloads...');
+  //     const updatedDownloads = await Promise.all(
+  //       downloads.map(async (item) => {
+  //         const exists = await downloadExists(item.id);
+  //         console.log(`DEBUG: Checking ${item.id}, exists: ${exists}`);
+          
+  //         if (exists) {
+  //           const entryFile = await findEntryFile(item.id);
+  //           if (entryFile) {
+  //             console.log(`DEBUG: Found entry file for ${item.id}: ${entryFile}`);
+  //             return { ...item, status: 'ready', entryFile };
+  //           }
+  //         }
+          
+  //         return { ...item, status: 'pending', entryFile: null };
+  //       })
+  //     );
+  //     setDownloads(updatedDownloads);
+  //   };
+  //   checkExistingDownloads();
+  // }, []);
 
   const openModal = () => {
     setModalVisible(true);
@@ -183,11 +219,37 @@ export default function DownloadsScreen() {
   };
 
   const handleOpen = (item) => {
-    navigation.navigate('WebView', {
-      title: item.title,
-      downloadId: item.id,
-      entryFile: item.entryFile,
-    });
+    if (!item.entryFile) {
+      Alert.alert('Download Required', 'Please download this tour first before viewing.');
+      return;
+    }
+    
+    Alert.alert(
+      'View Mode',
+      'Choose how you want to view this tour',
+      [
+        {
+          text: 'Virtual Tour',
+          onPress: () => navigation.navigate('WebView', {
+            title: item.title,
+            downloadId: item.id,
+            entryFile: item.entryFile,
+          }),
+        },
+        {
+          text: 'Live Record',
+          onPress: () => navigation.navigate('LiveRecord', {
+            title: item.title,
+            downloadId: item.id,
+            entryFile: item.entryFile,
+          }),
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ]
+    );
   };
 
   const handleRemove = async (id) => {
