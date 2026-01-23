@@ -68,10 +68,10 @@ export default function RecordingResultScreen() {
               </TouchableOpacity>
           </View>
 
-          <View style={styles.footer}>
+          {/* <View style={styles.footer}>
               <Text style={styles.titleText}>{title}</Text>
               <Text style={styles.subtitleText}>Recorded Session</Text>
-          </View>
+          </View> */}
       </SafeAreaView>
       
     </View>

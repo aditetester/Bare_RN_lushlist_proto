@@ -61,5 +61,10 @@
 
         </activity>
 
+        <service
+            android:name="com.hbisoft.hbrecorder.HBRecorderService"
+            android:foregroundServiceType="mediaProjection"
+            android:exported="false" />
+
     </application>
 </manifest>

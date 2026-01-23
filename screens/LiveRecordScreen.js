@@ -143,7 +143,7 @@ export default function LiveRecordScreen() {
 
       console.log('Starting recording...');
       const res = await RecordScreen.startRecording({
-        mic: true,
+        mic: audioEnabled,
         bitrate: 1024000,
         fps: 30
       }).catch((error) => {
@@ -399,12 +399,12 @@ export default function LiveRecordScreen() {
             
             <Text style={styles.recordingTimer}>{formatTime(recordingDuration)}</Text>
             
-            {/* <TouchableOpacity 
+            <TouchableOpacity 
               style={styles.pauseButton}
               onPress={handlePauseResume}
             >
               <Text style={styles.pauseIcon}>{isPaused ? '▶️' : '⏸️'}</Text>
-            </TouchableOpacity> */}
+            </TouchableOpacity>
             
             <TouchableOpacity 
               style={styles.restartButton}
