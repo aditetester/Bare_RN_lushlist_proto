@@ -21,8 +21,6 @@ export const startServer = async () => {
     return serverOrigin;
   }
 
-  console.log('DEBUG: startServer called');
-  console.log('DEBUG: CONTENT_ROOT:', CONTENT_ROOT);
   
   await ensureContentDirectory();
 

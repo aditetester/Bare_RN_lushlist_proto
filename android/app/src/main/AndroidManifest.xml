@@ -28,6 +28,7 @@
         android:theme="@style/AppTheme"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
+        android:extractNativeLibs="true"
         android:enableOnBackInvokedCallback="false">
 
         <!-- Expo config -->

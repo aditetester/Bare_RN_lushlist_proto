@@ -20,5 +20,13 @@ allprojects {
   }
 }
 
+subprojects {
+    configurations.all {
+        resolutionStrategy.dependencySubstitution {
+            substitute module('com.yqritc:android-scalablevideoview:1.0.4') using module('com.github.jayshah123:Android-ScalableVideoView:v1.0.4')
+        }
+    }
+}
+
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"

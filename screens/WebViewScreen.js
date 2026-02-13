@@ -195,15 +195,12 @@ export default function WebViewScreen({ navigation, route }) {
         // Cache settings
         cacheEnabled={true}
         cacheMode="LOAD_DEFAULT"
-        renderLoading={() => {
-          console.log('WEB URL:', webUrl);
-          return (
+        renderLoading={() => (
             <View style={styles.webviewLoading}>
               <ActivityIndicator size="large" color="#ff4081" />
               <Text style={styles.loadingText}>Loading 360° Tour...</Text>
             </View>
-          );
-        }}
+        )}
       />
 
       {/* Navigation Bar */}

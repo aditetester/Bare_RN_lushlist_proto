@@ -51,31 +51,6 @@ export default function DownloadsScreen() {
 
   const slideAnim = useRef(new Animated.Value(0)).current;
 
-  // Check if downloads exist on mount
-  // React.useEffect(() => {
-  //   const checkExistingDownloads = async () => {
-  //     console.log('DEBUG: Checking existing downloads...');
-  //     const updatedDownloads = await Promise.all(
-  //       downloads.map(async (item) => {
-  //         const exists = await downloadExists(item.id);
-  //         console.log(`DEBUG: Checking ${item.id}, exists: ${exists}`);
-          
-  //         if (exists) {
-  //           const entryFile = await findEntryFile(item.id);
-  //           if (entryFile) {
-  //             console.log(`DEBUG: Found entry file for ${item.id}: ${entryFile}`);
-  //             return { ...item, status: 'ready', entryFile };
-  //           }
-  //         }
-          
-  //         return { ...item, status: 'pending', entryFile: null };
-  //       })
-  //     );
-  //     setDownloads(updatedDownloads);
-  //   };
-  //   checkExistingDownloads();
-  // }, []);
-
   const openModal = () => {
     setModalVisible(true);
     Animated.spring(slideAnim, {
@@ -128,7 +103,6 @@ export default function DownloadsScreen() {
 
   const handleDownload = async (item) => {
     try {
-      console.log('RAW downloadUrl:', JSON.stringify(item.downloadUrl));
       // Update status to downloading
       setDownloads(prev => prev.map(d =>
         d.id === item.id ? { ...d, status: 'downloading' } : d

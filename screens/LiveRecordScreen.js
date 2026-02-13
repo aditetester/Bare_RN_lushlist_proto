@@ -10,9 +10,12 @@ import {
   StatusBar,
   AppState,
   PixelRatio,
-  TouchableWithoutFeedback
+  TouchableWithoutFeedback,
+  ActivityIndicator,
+  NativeModules
 } from 'react-native';
 import RecordScreen from 'react-native-record-screen';
+import * as RNFS from 'react-native-fs';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { 
@@ -29,6 +32,7 @@ export default function LiveRecordScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const { downloadId, entryFile, title } = route.params || {};
+  const { VideoMerger } = NativeModules;
 
   // Permissions
   const { hasPermission: cameraHasPermission, requestPermission: requestCameraPermission } = useCameraPermission();
@@ -48,19 +52,21 @@ export default function LiveRecordScreen() {
   const [audioEnabled, setAudioEnabled] = useState(true);
   // const [fullscreenMode, setFullscreenMode] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  
+  const segments = useRef([]);
 
   const timerRef = useRef(null);
+
 
   // Initialize Tour
   useEffect(() => {
     let mounted = true;
-    console.log('LiveRecordScreen Params:', { downloadId, entryFile, title });
     
     const init = async () => {
       try {
         if (downloadId && entryFile) {
           const url = await getDownloadFileUrl(downloadId, entryFile);
-          console.log('Generated Web URL:', url);
           if (mounted) setWebUrl(url);
         } else {
           console.warn('Missing downloadId or entryFile');
@@ -134,14 +140,22 @@ export default function LiveRecordScreen() {
   }, [appState, status]);
 
 
-  const startRecording = async () => {
+  const startRecording = async (isResume = false) => {
     try {
       if (!cameraHasPermission || !micHasPermission) {
         Alert.alert('Permissions Required', 'Camera and Audio permissions are needed to record.');
         return;
       }
 
-      console.log('Starting recording...');
+      
+      if (isResume && segments.current.length === 0) {
+        isResume = false;
+      }
+      
+      if (!isResume) {
+          segments.current = [];
+      }
+
       const res = await RecordScreen.startRecording({
         mic: audioEnabled,
         bitrate: 1024000,
@@ -152,16 +166,12 @@ export default function LiveRecordScreen() {
         setStatus('idle');
       });
 
-      console.log('Start recording response:', res);
 
       if (res === 'STARTED' || res === 'started') {
         setStatus('recording');
-        setRecordingDuration(0);
+        if (!isResume) setRecordingDuration(0);
       } else {
         console.warn('Unexpected start recording response:', res);
-        // Fallback: If we got a response but it isn't "started", assume it started if no error was thrown
-        // However, safest to trust the module. If it returns void/null but doesn't throw, we might assume started?
-        // Based on Java code: startPromise!!.resolve("started"); -> it returns "started".
       }
     } catch (e) {
       console.error('Failed to start recording:', e);
@@ -170,12 +180,165 @@ export default function LiveRecordScreen() {
   };
 
   const stopRecording = async () => {
+  try {
+    const res = await RecordScreen.stopRecording();
+    
+    if (!res?.result?.outputURL) {
+      console.warn('No output URL from stop recording');
+      setStatus('idle');
+      return;
+    }
+    
+    
+    //Wait for file to be written
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    //Verify file before adding
     try {
-      const res = await RecordScreen.stopRecording();
-      if (res) {
-        console.log('Recording finished:', res);
-        const videoUri = res.result.outputURL;
+      const stats = await RNFS.stat(res.result.outputURL);
+      
+      if (stats.size > 10000) {
+        segments.current.push({
+          path: res.result.outputURL,
+          hasAudio: audioEnabled,
+        });
         
+        await mergeSegments();
+      } else {
+        console.warn('Final segment too small');
+        Alert.alert('Error', 'Recording segment is too small or corrupted');
+        setStatus('idle');
+      }
+    } catch (statErr) {
+      console.error('Failed to verify final segment:', statErr);
+      setStatus('idle');
+    }
+    
+  } catch (e) {
+    console.error('Failed to stop recording:', e);
+    Alert.alert('Stop Recording Failed', e.message);
+    setStatus('idle');
+  }
+};
+
+  const mergeSegments = async () => {
+  if (segments.current.length === 0) {
+    setStatus('idle');
+    return;
+  }
+
+  if (segments.current.length === 1) {
+    finishRecording(segments.current[0].path);
+    return;
+  }
+
+  setIsProcessing(true);
+
+  try {
+
+    //CRITICAL: Validate and filter segments
+    const validSegments = [];
+    
+    for (let i = 0; i < segments.current.length; i++) {
+      const seg = segments.current[i];
+      
+      try {
+        // Check if file exists
+        const exists = await RNFS.exists(seg.path);
+        if (!exists) {
+          console.warn(`Segment ${i} does not exist:`, seg.path);
+          continue;
+        }
+
+        // Check file size
+        const stats = await RNFS.stat(seg.path);
+        
+        // Skip files smaller than 10KB (likely corrupted/incomplete)
+        if (stats.size < 10000) {
+          console.warn(`Segment ${i} too small (${stats.size} bytes), skipping`);
+          continue;
+        }
+
+        validSegments.push(seg);
+      } catch (err) {
+        console.error(`Error checking segment ${i}:`, err);
+      }
+    }
+
+
+    // If no valid segments, fail
+    if (validSegments.length === 0) {
+      throw new Error('No valid video segments found');
+    }
+
+    // If only one valid segment, use it directly
+    if (validSegments.length === 1) {
+      finishRecording(validSegments[0].path);
+      return;
+    }
+
+    // Merge multiple segments
+    const recordingsDir = '/storage/emulated/0/Android/data/com.lushlist.proto/files/ReactNativeRecordScreen';
+    const outputFile = `${recordingsDir}/MERGED_${Date.now()}.mp4`;
+
+    const merger = VideoMerger || NativeModules.VideoMerger;
+    if (!merger) {
+      throw new Error('Native VideoMerger module not found. Please ensure you have rebuilt the app (npm run android).');
+    }
+
+    const paths = validSegments.map(s => s.path);
+    const finalPath = await merger.mergeVideos(paths, outputFile);
+    
+    
+    // Verify output file
+
+    finishRecording(finalPath);
+
+    // Cleanup segments
+    for (const seg of validSegments) {
+      try {
+        await RNFS.unlink(seg.path);
+      } catch (err) {
+        console.warn('Failed to delete segment:', seg.path, err);
+      }
+    }
+
+  } catch (err) {
+    console.error('Merge failed:', err);
+    
+    Alert.alert(
+      'Merge Failed',
+      `Could not merge segments: ${err.message}\n\nUsing largest segment instead.`,
+      [{ text: 'OK' }]
+    );
+    
+    // Fallback: find the largest valid segment
+    let largestSegment = null;
+    let largestSize = 0;
+    
+    for (const seg of segments.current) {
+      try {
+        const stats = await RNFS.stat(seg.path);
+        if (stats.size > largestSize) {
+          largestSize = stats.size;
+          largestSegment = seg.path;
+        }
+      } catch (e) {
+        // Skip this segment
+      }
+    }
+
+    if (largestSegment) {
+        finishRecording(largestSegment);
+    } else {
+        setStatus('idle');
+    }
+  } finally {
+    setIsProcessing(false);
+  }
+};
+
+  const finishRecording = (videoUri) => {
         // Navigate immediately to prevent camera session error
         navigation.navigate('RecordingResult', {
           videoUri: videoUri,
@@ -187,12 +350,8 @@ export default function LiveRecordScreen() {
         // Reset state after navigation
         setStatus('idle');
         setRecordedVideo(null);
-      }
-    } catch (e) {
-      console.error('Failed to stop recording:', e);
-      Alert.alert('Stop Recording Failed', e.message);
-      setStatus('idle');
-    }
+        setIsPaused(false);
+        segments.current = [];
   };
 
   const handleSave = () => {
@@ -222,29 +381,60 @@ export default function LiveRecordScreen() {
   };
 
   const handlePauseResume = async () => {
+  try {
     if (isPaused) {
-      await RecordScreen.resumeRecording();
+      // Resume - start new segment
+      await startRecording(true);
+      setIsPaused(false);
     } else {
-      await RecordScreen.pauseRecording();
+      // Pause - stop and save current segment
+      const res = await RecordScreen.stopRecording();
+      
+      if (res?.result?.outputURL) {
+        
+        //Wait longer for file to be fully written
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        //Verify the file before adding to segments
+        try {
+          const stats = await RNFS.stat(res.result.outputURL);
+          
+          if (stats.size > 10000) {
+            segments.current.push({
+              path: res.result.outputURL,
+              hasAudio: audioEnabled,
+            });
+          } else {
+            console.warn('Paused segment too small, not adding');
+          }
+        } catch (statErr) {
+          console.error('Failed to verify paused segment:', statErr);
+        }
+      }
+      
+      setStatus('paused');
+      setIsPaused(true);
     }
-    setIsPaused(!isPaused);
-  };
+  } catch (e) {
+    console.error('Failed to pause/resume:', e);
+    Alert.alert('Error', 'Failed to pause/resume recording: ' + e.message);
+  }
+};
 
 
   const handleRestart = async () => {
     try {
-      await RecordScreen.stopRecording();
+      // If we are recording, stop it first to cleanup? 
+      // Actually RecordScreen might be running.
+      try { await RecordScreen.stopRecording(); } catch(e) {}
+      
+      segments.current = [];
       setRecordingDuration(0);
       setIsPaused(false);
-      // Start new recording
-      const res = await RecordScreen.startRecording({
-        mic: audioEnabled,
-        bitrate: 1024000,
-        fps: 30
-      });
-      if (res === 'STARTED' || res === 'started') {
-        setStatus('recording');
-      }
+      
+      // Start new recording (fresh)
+      await startRecording(false);
+
     } catch (e) {
       console.error('Failed to restart recording:', e);
     }
@@ -275,6 +465,10 @@ export default function LiveRecordScreen() {
   };
 
   const handleSaveRecording = async () => {
+    if (recordingDuration < 1) {
+      Alert.alert('Too Short', 'Recording must be at least 1 second long');
+      return;
+    }
     await stopRecording();
   };
 
@@ -286,23 +480,18 @@ export default function LiveRecordScreen() {
     setAudioEnabled(!audioEnabled);
   };
 
-  // const lastTap = useRef(null);
-  // const handleDoubleTap = () => {
-  //   const now = Date.now();
-  //   const DOUBLE_PRESS_DELAY = 300;
-    
-  //   if (lastTap.current && (now - lastTap.current) < DOUBLE_PRESS_DELAY) {
-  //     setFullscreenMode(!fullscreenMode);
-  //     lastTap.current = null;
-  //   } else {
-  //     lastTap.current = now;
-  //   }
-  // };
 
   return (
     <View style={styles.container}>
       <StatusBar hidden />
       
+        {isProcessing && (
+            <View style={[styles.loadingContainer, { zIndex: 999, backgroundColor: 'rgba(0,0,0,0.7)' }]}>
+                <ActivityIndicator size="large" color="#ff4081" />
+                <Text style={styles.loadingText}>Processing Video...</Text>
+            </View>
+        )}
+
       {/* Background Tour */}
       {webUrl ? (
           <View style={{ flex: 1 }}>
@@ -353,14 +542,6 @@ export default function LiveRecordScreen() {
             </TouchableOpacity>
             
             <View style={styles.panelContent}>
-              {/* <TouchableOpacity 
-                style={styles.settingRow}
-                onPress={() => setFullscreenMode(true)}
-              >
-                <Text style={styles.settingIcon}>📺</Text>
-                <Text style={styles.settingText}>Full screen</Text>
-              </TouchableOpacity> */}
-              
               <TouchableOpacity 
                 style={styles.settingRow}
                 onPress={toggleCamera}
@@ -388,7 +569,7 @@ export default function LiveRecordScreen() {
         )}
 
         {/* Bottom Recording Controls (During Recording) */}
-        {status === 'recording' && (
+        {(status === 'recording' || status === 'paused') && (
           <View style={styles.bottomRecordingBar}>
             <TouchableOpacity 
               style={styles.saveRecordButton}
@@ -436,39 +617,6 @@ export default function LiveRecordScreen() {
           </View>
         )}
 
-        {/* Bottom Controls */}
-        {/* <View style={styles.bottomControls}>
-          
-          {status === 'idle' && (
-             <TouchableOpacity style={styles.recordButton} onPress={startRecording}>
-               <View style={styles.recordButtonInner} />
-             </TouchableOpacity>
-          )}
-
-          {status === 'recording' && (
-            <View style={styles.recordingControls}>
-               <Text style={styles.timerText}>{formatTime(recordingDuration)}</Text>
-               <TouchableOpacity style={styles.stopButton} onPress={stopRecording}>
-                 <View style={styles.stopButtonIcon} />
-               </TouchableOpacity>
-            </View>
-          )}
-
-          {status === 'review' && (
-             <View style={styles.reviewControls}>
-               <Text style={styles.reviewTitle}>Preview Booking?</Text>
-               <View style={styles.reviewButtons}>
-                 <TouchableOpacity style={styles.discardButton} onPress={handleDiscard}>
-                   <Text style={styles.buttonText}>Discard</Text>
-                 </TouchableOpacity>
-                 <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-                   <Text style={styles.buttonText}>Save & View</Text>
-                 </TouchableOpacity>
-               </View>
-             </View>
-          )}
-
-        </View> */}
       </SafeAreaView>
       
       {/* Setup Permissions Check display */}
